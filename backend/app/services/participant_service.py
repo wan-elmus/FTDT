@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from datetime import datetime
 
 from app.models import LocalTransaction, Account, TransactionStatus, TransactionLog
@@ -80,26 +80,35 @@ class ParticipantService:
         return "yes"
 
     async def commit_transaction(self, db: AsyncSession, transaction_id: str):
-        local_tx = await db.get(LocalTransaction, (transaction_id, settings.node_id))
+        query = select(LocalTransaction).where(
+            and_(
+                LocalTransaction.transaction_id == transaction_id,
+                LocalTransaction.node_id == settings.node_id
+            )
+        )
+        result = await db.execute(query)
+        local_tx = result.scalar_one_or_none()
+
         if not local_tx or local_tx.status == TransactionStatus.COMMITTED:
             return  # Idempotent: already committed
 
         if local_tx.operation_type == "transfer":
             # Fetch all prepare logs to redo changes
             query = select(TransactionLog).where(
-                TransactionLog.transaction_id == transaction_id,
-                TransactionLog.node_id == settings.node_id,
-                TransactionLog.log_type == "prepare"
+                and_(
+                    TransactionLog.transaction_id == transaction_id,
+                    TransactionLog.node_id == settings.node_id,
+                    TransactionLog.log_type == "prepare"
+                )
             )
             result = await db.execute(query)
             prepare_logs = result.scalars().all()
 
             for log in prepare_logs:
-                # Extract account_id from details (e.g., "from account acc-1001")
                 try:
                     account_id = log.details.split("account ")[-1]
                 except:
-                    continue  # Skip malformed log
+                    continue
 
                 account = await db.get(Account, account_id)
                 if account and log.after_state and "balance" in log.after_state:
@@ -113,7 +122,15 @@ class ParticipantService:
         await db.commit()
 
     async def abort_transaction(self, db: AsyncSession, transaction_id: str):
-        local_tx = await db.get(LocalTransaction, (transaction_id, settings.node_id))
+        query = select(LocalTransaction).where(
+            and_(
+                LocalTransaction.transaction_id == transaction_id,
+                LocalTransaction.node_id == settings.node_id
+            )
+        )
+        result = await db.execute(query)
+        local_tx = result.scalar_one_or_none()
+
         if local_tx and local_tx.status not in {TransactionStatus.COMMITTED, TransactionStatus.ABORTED}:
             local_tx.status = TransactionStatus.ABORTED
             local_tx.decided_at = datetime.utcnow()
@@ -122,8 +139,12 @@ class ParticipantService:
             await db.commit()
 
     async def recover_uncertain_transactions(self, db: AsyncSession) -> list:
+        # Fixed: Add node_id filter
         query = select(LocalTransaction).where(
-            LocalTransaction.status == TransactionStatus.PREPARED
+            and_(
+                LocalTransaction.node_id == settings.node_id,
+                LocalTransaction.status == TransactionStatus.PREPARED
+            )
         )
         result = await db.execute(query)
         uncertain = result.scalars().all()
