@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
             else:
                 logger.info("No uncertain transactions found during recovery")
 
-    # Start failure detector (only coordinator needs it, but harmless on participants)
+    # Start failure detector 
     global failure_detector
     failure_detector = FailureDetector()
     await failure_detector.start()
