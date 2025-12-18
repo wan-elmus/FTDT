@@ -76,7 +76,7 @@ if settings.node_role == "coordinator":
     app.include_router(coordinator_router, prefix="/api", tags=["coordinator"])
     logger.info("Running as Coordinator")
 elif settings.node_role == "participant":
-    app.include_router(participant_router, prefix="/api", tags=["participant"])
+    app.include_router(participant_router)
     logger.info(f"Running as Participant: {settings.node_id}")
 else:
     raise ValueError(f"Invalid NODE_ROLE: {settings.node_role}")
