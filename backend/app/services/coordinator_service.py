@@ -12,29 +12,30 @@ class CoordinatorService:
 
     def _derive_participant_operations(self, tx: DistributedTransaction):
         """
-        Returns: dict[node_url -> operation_data]
+        Split a global transfer into participant-local operations.
+
+        Returns:
+            dict[url -> { local_account, local_delta }]
         """
         op = tx.operation_data
         amount = op["amount"]
 
         operations = {}
 
-        # Debit source node
+        # Debit source participant
         from_node = op["from_node"]
         from_url = settings.nodes[from_node]["url"]
         operations[from_url] = {
-            "amount": amount,
-            "account_id": op["from_account"],
-            "delta": -amount,
+            "local_account": op["from_account"],
+            "local_delta": -amount,
         }
 
-        # Credit destination node
+        # Credit destination participant
         to_node = op["to_node"]
         to_url = settings.nodes[to_node]["url"]
         operations[to_url] = {
-            "amount": amount,
-            "account_id": op["to_account"],
-            "delta": amount,
+            "local_account": op["to_account"],
+            "local_delta": amount,
         }
 
         return operations
@@ -45,10 +46,11 @@ class CoordinatorService:
             return
 
         participant_ops = self._derive_participant_operations(tx)
+
         votes = {}
         all_yes = True
 
-        # -------- Phase 1: PREPARE --------
+        # ---------------- Phase 1: PREPARE ----------------
         async with httpx.AsyncClient(
             timeout=settings.prepare_timeout / 1000
         ) as client:
@@ -56,18 +58,19 @@ class CoordinatorService:
             tasks = []
             urls = []
 
-            for url, op_data in participant_ops.items():
+            for url, local_op in participant_ops.items():
                 payload = {
                     "transaction_id": transaction_id,
                     "operation_type": "transfer",
                     "operation_data": {
-                        **tx.operation_data,
-                        "local_delta": op_data["delta"],
-                        "local_account": op_data["account_id"],
+                        "local_account": local_op["local_account"],
+                        "local_delta": local_op["local_delta"],
                     },
                 }
                 urls.append(url)
-                tasks.append(client.post(f"{url}/api/prepare", json=payload))
+                tasks.append(
+                    client.post(f"{url}/api/prepare", json=payload)
+                )
 
             responses = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -82,10 +85,14 @@ class CoordinatorService:
                     all_yes = False
 
         tx.participant_votes = votes
-        tx.status = TransactionStatus.COMMITTING if all_yes else TransactionStatus.ABORTING
+        tx.status = (
+            TransactionStatus.COMMITTING
+            if all_yes
+            else TransactionStatus.ABORTING
+        )
         await db.commit()
 
-        # -------- Phase 2: COMMIT / ABORT --------
+        # ---------------- Phase 2: COMMIT / ABORT ----------------
         decision = "commit" if all_yes else "abort"
 
         async with httpx.AsyncClient(
@@ -98,11 +105,17 @@ class CoordinatorService:
                     transaction_id=transaction_id,
                     decision=decision,
                 )
-                tasks.append(client.post(f"{url}/api/{decision}", json=req.dict()))
+                tasks.append(
+                    client.post(f"{url}/api/{decision}", json=req.dict())
+                )
 
             await asyncio.gather(*tasks, return_exceptions=True)
 
-        tx.status = TransactionStatus.COMMITTED if all_yes else TransactionStatus.ABORTED
+        tx.status = (
+            TransactionStatus.COMMITTED
+            if all_yes
+            else TransactionStatus.ABORTED
+        )
         tx.decision_made_at = datetime.utcnow()
         await db.commit()
 
