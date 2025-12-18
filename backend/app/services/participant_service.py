@@ -1,0 +1,138 @@
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from datetime import datetime
+
+from ..models import LocalTransaction, Account, TransactionStatus, TransactionLog
+from .lock_manager import lock_manager
+from .transaction_manager import transaction_manager
+from ..config import settings
+
+class ParticipantService:
+    async def prepare_transaction(
+        self,
+        db: AsyncSession,
+        transaction_id: str,
+        operation_type: str,
+        operation_data: dict
+    ) -> str:
+        local_tx = LocalTransaction(
+            transaction_id=transaction_id,
+            node_id=settings.node_id,
+            status=TransactionStatus.PREPARING,
+            operation_type=operation_type,
+            operation_data=operation_data
+        )
+        db.add(local_tx)
+        await db.flush()
+
+        if operation_type == "transfer":
+            from_account = operation_data.get("from_account")
+            to_account = operation_data.get("to_account")
+            amount = operation_data.get("amount")
+
+            local_accounts = []
+            if operation_data.get("from_node") == settings.node_id:
+                local_accounts.append(("from", from_account))
+            if operation_data.get("to_node") == settings.node_id:
+                local_accounts.append(("to", to_account))
+
+            for role, acc_id in local_accounts:
+                locked = await lock_manager.acquire_write_lock(
+                    db=db,
+                    transaction_id=transaction_id,
+                    resource_id=acc_id
+                )
+                if not locked:
+                    local_tx.status = TransactionStatus.ABORTED
+                    local_tx.vote = "no"
+                    await db.commit()
+                    return "no"
+
+                account = await db.get(Account, acc_id)
+                if not account:
+                    await lock_manager.release_all_locks(db, transaction_id)
+                    local_tx.status = TransactionStatus.ABORTED
+                    local_tx.vote = "no"
+                    await db.commit()
+                    return "no"
+
+                if role == "from" and account.balance < amount:
+                    await lock_manager.release_all_locks(db, transaction_id)
+                    local_tx.status = TransactionStatus.ABORTED
+                    local_tx.vote = "no"
+                    await db.commit()
+                    return "no"
+
+                before = {"balance": account.balance}
+                after = {"balance": account.balance - amount if role == "from" else account.balance + amount}
+                await transaction_manager.log_prepare(
+                    db=db,
+                    transaction_id=transaction_id,
+                    before_state=before,
+                    after_state=after,
+                    details=f"{role} account {acc_id}"
+                )
+
+        local_tx.status = TransactionStatus.PREPARED
+        local_tx.vote = "yes"
+        local_tx.prepared_at = datetime.utcnow()
+        await db.commit()
+        return "yes"
+
+    async def commit_transaction(self, db: AsyncSession, transaction_id: str):
+        local_tx = await db.get(LocalTransaction, (transaction_id, settings.node_id))
+        if not local_tx or local_tx.status == TransactionStatus.COMMITTED:
+            return  # Idempotent: already committed
+
+        if local_tx.operation_type == "transfer":
+            # Fetch all prepare logs to redo changes
+            query = select(TransactionLog).where(
+                TransactionLog.transaction_id == transaction_id,
+                TransactionLog.node_id == settings.node_id,
+                TransactionLog.log_type == "prepare"
+            )
+            result = await db.execute(query)
+            prepare_logs = result.scalars().all()
+
+            for log in prepare_logs:
+                # Extract account_id from details (e.g., "from account acc-1001")
+                try:
+                    account_id = log.details.split("account ")[-1]
+                except:
+                    continue  # Skip malformed log
+
+                account = await db.get(Account, account_id)
+                if account and log.after_state and "balance" in log.after_state:
+                    account.balance = log.after_state["balance"]
+                    account.updated_at = datetime.utcnow()
+
+        local_tx.status = TransactionStatus.COMMITTED
+        local_tx.decided_at = datetime.utcnow()
+        await transaction_manager.log_commit(db, transaction_id)
+        await lock_manager.release_all_locks(db, transaction_id)
+        await db.commit()
+
+    async def abort_transaction(self, db: AsyncSession, transaction_id: str):
+        local_tx = await db.get(LocalTransaction, (transaction_id, settings.node_id))
+        if local_tx and local_tx.status not in {TransactionStatus.COMMITTED, TransactionStatus.ABORTED}:
+            local_tx.status = TransactionStatus.ABORTED
+            local_tx.decided_at = datetime.utcnow()
+            await transaction_manager.log_abort(db, transaction_id)
+            await lock_manager.release_all_locks(db, transaction_id)
+            await db.commit()
+
+    async def recover_uncertain_transactions(self, db: AsyncSession) -> list:
+        query = select(LocalTransaction).where(
+            LocalTransaction.status == TransactionStatus.PREPARED
+        )
+        result = await db.execute(query)
+        uncertain = result.scalars().all()
+
+        recovered = []
+        for tx in uncertain:
+            await self.abort_transaction(db, tx.transaction_id)
+            recovered.append(tx.transaction_id)
+
+        return recovered
+
+participant_service = ParticipantService()

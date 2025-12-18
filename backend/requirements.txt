@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+alembic
+asyncpg
+pydantic
+pydantic-settings
+httpx
+python-dotenv
+psycopg2-binary
+pytest
+pytest-asyncio
+pytest-cov
+coverage
+databases[postgresql]
+gunicorn
