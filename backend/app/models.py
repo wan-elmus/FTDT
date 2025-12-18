@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import Enum
+from app.database import Base
 
 from sqlalchemy import (
     Column,
@@ -14,11 +15,6 @@ from sqlalchemy import (
     UniqueConstraint,
     Index,
 )
-from sqlalchemy.orm import declarative_base
-
-Base = declarative_base()
-
-
 class TransactionStatus(str, Enum):
     INIT = "init"
     PREPARING = "preparing"

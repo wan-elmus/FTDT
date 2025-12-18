@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
+from sqlalchemy import text
 
 from app.database import get_db
 from app.config import settings
@@ -22,3 +23,8 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         timestamp=datetime.utcnow(),
         database=db_healthy
     )
+    
+@router.get("/debug/search-path")
+async def debug_search_path(db: AsyncSession = Depends(get_db)):
+    res = await db.execute(text("SHOW search_path"))
+    return {"search_path": res.scalar()}

@@ -31,10 +31,14 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.node_role} node: {settings.node_id}")
     logger.info(f"Port: {settings.port} | Schema: {settings.schema_name}")
 
-    # Initialize schema and tables
     await init_db()
 
-    # Run crash recovery for participants only
+    from app.database import assert_search_path
+
+    async with AsyncSessionLocal() as db:
+        await assert_search_path(db)
+        logger.info(f"Verified search_path = {settings.schema_name}")
+
     if settings.node_role == "participant":
         async with AsyncSessionLocal() as db:
             recovered = await recovery_manager.recover(db)
@@ -43,7 +47,6 @@ async def lifespan(app: FastAPI):
             else:
                 logger.info("No uncertain transactions found during recovery")
 
-    # Start failure detector 
     global failure_detector
     failure_detector = FailureDetector()
     await failure_detector.start()
@@ -53,6 +56,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Shutting down {settings.node_role} node: {settings.node_id}")
     if failure_detector:
         await failure_detector.stop()
+
 
 app = FastAPI(
     title="Fault-Tolerant Distributed Transactions System",

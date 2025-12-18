@@ -3,12 +3,10 @@ from sqlalchemy.orm import declarative_base
 from sqlalchemy import event, text
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
-
 from .config import settings
 
 
 Base = declarative_base()
-
 
 engine = create_async_engine(
     settings.database_url,
@@ -17,8 +15,12 @@ engine = create_async_engine(
     max_overflow=20,
     pool_pre_ping=True,
     pool_recycle=1800,
+    connect_args={
+        "server_settings": {
+            "search_path": settings.schema_name
+        }
+    }
 )
-
 
 AsyncSessionLocal = async_sessionmaker(
     engine,
@@ -27,15 +29,6 @@ AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
-
-
-@event.listens_for(engine.sync_engine, "connect")
-def set_schema_on_connect(dbapi_connection, connection_record):
-    """Set the search_path for each new connection."""
-    schema = settings.schema_name
-    cursor = dbapi_connection.cursor()
-    cursor.execute(f"SET search_path TO {schema}")
-    cursor.close()
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -96,3 +89,15 @@ async def check_db_health() -> bool:
         return True
     except Exception:
         return False
+
+async def assert_search_path(session: AsyncSession):
+    res = await session.execute(text("SHOW search_path"))
+    search_path = res.scalar()
+    expected = settings.schema_name
+
+    schemas = [s.strip() for s in search_path.split(",")]
+
+    if expected not in schemas or schemas[0] != expected:
+        raise RuntimeError(
+            f"Invalid search_path: {search_path} (expected {expected})"
+        )
