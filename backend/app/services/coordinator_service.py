@@ -3,8 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import httpx 
 from datetime import datetime, timedelta
 
-from ..config import settings
-from ..schemas import PrepareRequest, DecisionRequest, TransactionStatus
+from app.config import settings
+from app.schemas import PrepareRequest, DecisionRequest, TransactionStatus
 
 class CoordinatorService:
     async def execute_2pc(self, db: AsyncSession, transaction_id: str):
