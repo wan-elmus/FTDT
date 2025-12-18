@@ -2,8 +2,6 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# from app.config import settings
-
 class NodeRegistry:
     """
     Loads and manages node information from nodes.json.
@@ -15,12 +13,12 @@ class NodeRegistry:
         self._load()
 
     def _load(self):
-        config_path = Path(__file__).parent.parent / "nodes.json"
+        config_path = Path(__file__).parent.parent.parent / "nodes.json"
         if config_path.exists():
             with open(config_path, 'r') as f:
                 self.nodes = json.load(f)
         else:
-            raise FileNotFoundError("nodes.json not found in backend root")
+            raise FileNotFoundError(f"nodes.json not found at {config_path}")
 
     def get_all_nodes(self) -> Dict[str, Dict]:
         return self.nodes
