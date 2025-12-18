@@ -114,6 +114,7 @@ class ParticipantService:
                 if account and log.after_state and "balance" in log.after_state:
                     account.balance = log.after_state["balance"]
                     account.updated_at = datetime.utcnow()
+                    db.add(account)
 
         local_tx.status = TransactionStatus.COMMITTED
         local_tx.decided_at = datetime.utcnow()
