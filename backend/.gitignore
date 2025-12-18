@@ -11,6 +11,7 @@ stop_nodes.sh
 tables.sql
 test.txt
 *.sql
+alembic.ini
 
 
 # Distribution / packaging
