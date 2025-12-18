@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import logging
-from logging.handlers import FileHandler
 from contextlib import asynccontextmanager
 
 from .config import settings
@@ -18,7 +17,7 @@ logging.basicConfig(
     level=getattr(logging, settings.log_level),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        FileHandler(settings.log_file),
+        logging.FileHandler(settings.log_file),
         logging.StreamHandler()
     ]
 )
