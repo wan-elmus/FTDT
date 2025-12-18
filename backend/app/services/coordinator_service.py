@@ -50,7 +50,10 @@ class CoordinatorService:
         async with httpx.AsyncClient() as client:
             decision_requests = []
             for url in transaction.participant_urls:
-                req = DecisionRequest(transaction_id=transaction_id)
+                req = DecisionRequest(
+                    transaction_id=transaction_id,
+                    decision=decision
+                    )
                 endpoint = "/commit" if decision == "commit" else "/abort"
                 decision_requests.append(
                     client.post(f"{url}{endpoint}", json=req.dict())
