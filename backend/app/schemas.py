@@ -106,3 +106,8 @@ class TwoPCState(BaseModel):
     votes: Dict[str, Optional[str]] = {}
     decisions: Dict[str, Optional[str]] = {}
     timeout_at: Optional[datetime] = None
+    
+class ParticipantOperation(BaseModel):
+    transaction_id: str
+    operation_type: str
+    operation_data: Dict[str, Any]

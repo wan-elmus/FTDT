@@ -14,6 +14,7 @@ from app.services.transaction_manager import transaction_manager
 
 
 class ParticipantService:
+
     async def prepare_transaction(
         self,
         db: AsyncSession,
@@ -21,6 +22,14 @@ class ParticipantService:
         operation_type: str,
         operation_data: dict,
     ) -> str:
+        """
+        PREPARE phase:
+        - Acquire locks
+        - Validate constraints
+        - Write prepare log
+        - Do NOT modify balances
+        """
+
         local_tx = LocalTransaction(
             transaction_id=transaction_id,
             node_id=settings.node_id,
@@ -39,58 +48,50 @@ class ParticipantService:
             await db.commit()
             return "yes"
 
-        amount = operation_data["amount"]
-        from_node = operation_data["from_node"]
-        to_node = operation_data["to_node"]
+        # Participant-scoped operation
+        account_id = operation_data["local_account"]
+        delta = operation_data["local_delta"]
+        amount = abs(delta)
 
-        targets = []
+        # Acquire write lock
+        locked = await lock_manager.acquire_write_lock(
+            db=db,
+            transaction_id=transaction_id,
+            resource_id=account_id,
+        )
+        if not locked:
+            await self._abort_prepare(db, local_tx, transaction_id)
+            return "no"
 
-        if from_node == settings.node_id:
-            targets.append(("from", operation_data["from_account"]))
+        # Load account with FOR UPDATE
+        stmt = (
+            select(Account)
+            .where(Account.id == account_id)
+            .with_for_update()
+        )
+        result = await db.execute(stmt)
+        account = result.scalar_one_or_none()
 
-        if to_node == settings.node_id:
-            targets.append(("to", operation_data["to_account"]))
+        if not account:
+            await self._abort_prepare(db, local_tx, transaction_id)
+            return "no"
 
-        for role, acc_id in targets:
-            locked = await lock_manager.acquire_write_lock(
-                db=db,
-                transaction_id=transaction_id,
-                resource_id=acc_id,
-            )
-            if not locked:
-                await self._abort_prepare(db, local_tx, transaction_id)
-                return "no"
+        # Validation (ONLY for debit)
+        if delta < 0 and account.balance < amount:
+            await self._abort_prepare(db, local_tx, transaction_id)
+            return "no"
 
-            stmt = (
-                select(Account)
-                .where(Account.id == acc_id)
-                .with_for_update()
-            )
-            result = await db.execute(stmt)
-            account = result.scalar_one_or_none()
+        # Write-Ahead Logging (prepare)
+        before = {"balance": account.balance}
+        after = {"balance": account.balance + delta}
 
-            if not account:
-                await self._abort_prepare(db, local_tx, transaction_id)
-                return "no"
-
-            if role == "from" and account.balance < amount:
-                await self._abort_prepare(db, local_tx, transaction_id)
-                return "no"
-
-            before = {"balance": account.balance}
-            after = {
-                "balance": account.balance - amount
-                if role == "from"
-                else account.balance + amount
-            }
-
-            await transaction_manager.log_prepare(
-                db=db,
-                transaction_id=transaction_id,
-                before_state=before,
-                after_state=after,
-                details=f"{role}:{acc_id}",
-            )
+        await transaction_manager.log_prepare(
+            db=db,
+            transaction_id=transaction_id,
+            before_state=before,
+            after_state=after,
+            details=f"account:{account_id}",
+        )
 
         local_tx.status = TransactionStatus.PREPARED
         local_tx.vote = "yes"
@@ -99,6 +100,13 @@ class ParticipantService:
         return "yes"
 
     async def commit_transaction(self, db: AsyncSession, transaction_id: str):
+        """
+        COMMIT phase:
+        - Apply balance change
+        - Write commit log
+        - Release locks
+        """
+
         stmt = select(LocalTransaction).where(
             and_(
                 LocalTransaction.transaction_id == transaction_id,
@@ -113,21 +121,14 @@ class ParticipantService:
 
         if local_tx.operation_type == "transfer":
             op = local_tx.operation_data
-            amount = op["amount"]
+            account_id = op["local_account"]
+            delta = op["local_delta"]
 
-            if op["from_node"] == settings.node_id:
-                await self._apply_delta(
-                    db,
-                    op["from_account"],
-                    -amount,
-                )
-
-            if op["to_node"] == settings.node_id:
-                await self._apply_delta(
-                    db,
-                    op["to_account"],
-                    amount,
-                )
+            await self._apply_delta(
+                db=db,
+                account_id=account_id,
+                delta=delta,
+            )
 
         local_tx.status = TransactionStatus.COMMITTED
         local_tx.decided_at = datetime.utcnow()
@@ -137,6 +138,13 @@ class ParticipantService:
         await db.commit()
 
     async def abort_transaction(self, db: AsyncSession, transaction_id: str):
+        """
+        ABORT phase:
+        - No balance changes
+        - Release locks
+        - Write abort log
+        """
+
         stmt = select(LocalTransaction).where(
             and_(
                 LocalTransaction.transaction_id == transaction_id,
@@ -160,6 +168,11 @@ class ParticipantService:
         await db.commit()
 
     async def recover_uncertain_transactions(self, db: AsyncSession) -> list:
+        """
+        Recovery:
+        Abort all PREPARED transactions (conservative strategy)
+        """
+
         stmt = select(LocalTransaction).where(
             and_(
                 LocalTransaction.node_id == settings.node_id,
