@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime
 
 from ..database import get_db
 from ..config import settings
 from ..schemas import PrepareRequest, DecisionRequest, VoteResponse
 from ..services.participant_service import ParticipantService
+from ..models import Account
 
 router = APIRouter()
 participant_service = ParticipantService()
@@ -62,7 +64,6 @@ async def recover(db: AsyncSession = Depends(get_db)):
 @router.get("/accounts")
 async def list_accounts(db: AsyncSession = Depends(get_db)):
     from sqlalchemy import select
-    from ..models import Account
 
     result = await db.execute(select(Account))
     accounts = result.scalars().all()
@@ -72,7 +73,8 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
             "id": a.id,
             "balance": a.balance,
             "node_id": a.node_id,
-            "updated_at": a.updated_at.isoformat()
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "updated_at": a.updated_at.isoformat() if a.updated_at else None,
         }
         for a in accounts
     ]
