@@ -2,10 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from datetime import datetime
 
-from ..models import LocalTransaction, TransactionStatus, TransactionLog
-from ..config import settings
-from .participant_service import participant_service
-from ..services.lock_manager import lock_manager
+from app.models import LocalTransaction, TransactionStatus, TransactionLog
+from app.config import settings
+from app.services.participant_service import participant_service
+from app.services.lock_manager import lock_manager
 
 class RecoveryManager:
     """

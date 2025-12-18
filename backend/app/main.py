@@ -4,14 +4,14 @@ import uvicorn
 import logging
 from contextlib import asynccontextmanager
 
-from .config import settings
-from .database import init_db, AsyncSessionLocal
-from .api.coordinator import router as coordinator_router
-from .api.participant import router as participant_router
-from .api.health import router as health_router
-from .api.failure import router as failure_router
-from .services.failure_detector import FailureDetector
-from .services.recovery_manager import recovery_manager
+from app.config import settings
+from app.database import init_db, AsyncSessionLocal
+from app.api.coordinator import router as coordinator_router
+from app.api.participant import router as participant_router
+from app.api.health import router as health_router
+from app.api.failure import router as failure_router
+from app.services.failure_detector import FailureDetector
+from app.services.recovery_manager import recovery_manager
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level),

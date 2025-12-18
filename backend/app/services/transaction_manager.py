@@ -1,8 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
 
-from ..models import TransactionLog
-from ..config import settings
+from app.models import TransactionLog
+from app.config import settings
 
 class TransactionManager:
     """Helper for write-ahead logging."""

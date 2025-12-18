@@ -3,8 +3,8 @@ from sqlalchemy import select, and_
 from datetime import datetime, timedelta
 import asyncio
 
-from ..models import Lock, LockType, TransactionStatus
-from ..config import settings
+from app.models import Lock, LockType, TransactionStatus
+from app.config import settings
 
 class LockManager:
     """Strict Two-Phase Locking with timeout-based deadlock prevention."""

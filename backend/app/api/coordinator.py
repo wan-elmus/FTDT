@@ -3,12 +3,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 import uuid
 
-from ..database import get_db
-from ..config import settings
-from ..schemas import TransferRequest, TransactionStatusResponse, NodeStatus
-from ..models import DistributedTransaction, TransactionStatus
-from ..services.coordinator_service import CoordinatorService
-from ..services.failure_detector import failure_detector  # Global instance from main.py
+from app.database import get_db
+from app.config import settings
+from app.schemas import TransferRequest, TransactionStatusResponse, NodeStatus
+from app.models import DistributedTransaction, TransactionStatus
+from app.services.coordinator_service import CoordinatorService
+from app.services.failure_detector import failure_detector
 
 router = APIRouter()
 coordinator_service = CoordinatorService()

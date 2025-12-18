@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
 
-from ..database import get_db
-from ..config import settings
-from ..schemas import HealthResponse
+from app.database import get_db
+from app.config import settings
+from app.schemas import HealthResponse
 
 router = APIRouter()
 

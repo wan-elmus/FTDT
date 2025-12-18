@@ -2,10 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime
 
-from ..models import LocalTransaction, Account, TransactionStatus, TransactionLog
-from .lock_manager import lock_manager
-from .transaction_manager import transaction_manager
-from ..config import settings
+from app.models import LocalTransaction, Account, TransactionStatus, TransactionLog
+from app.services.lock_manager import lock_manager
+from app.services.transaction_manager import transaction_manager
+from app.config import settings
 
 class ParticipantService:
     async def prepare_transaction(
