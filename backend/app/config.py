@@ -2,7 +2,7 @@ import os
 from typing import List, Optional
 from pydantic_settings import BaseSettings
 from pathlib import Path
-from ..app.utils.node_registry import node_registry
+from app.utils.node_registry import node_registry
 
 class Settings(BaseSettings):
     node_id: str = ""
