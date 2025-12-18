@@ -1,8 +1,7 @@
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from enum import Enum
-from pydantic_settings import BaseModel, Field
-
+from pydantic import BaseModel, Field
 
 class TransactionStatus(str, Enum):
     INIT = "init"
