@@ -91,31 +91,30 @@ class ParticipantService:
 
         if not local_tx or local_tx.status == TransactionStatus.COMMITTED:
             return  # Idempotent: already committed
-
+        
         if local_tx.operation_type == "transfer":
-            # Fetch all prepare logs to redo changes
-            query = select(TransactionLog).where(
-                and_(
-                    TransactionLog.transaction_id == transaction_id,
-                    TransactionLog.node_id == settings.node_id,
-                    TransactionLog.log_type == "prepare"
-                )
-            )
-            result = await db.execute(query)
-            prepare_logs = result.scalars().all()
+            op = local_tx.operation_data
+            from_account = op.get("from_account")
+            to_account = op.get("to_account")
+            amount = op.get("amount")
+            from_node = op.get("from_node")
+            to_node = op.get("to_node")
 
-            for log in prepare_logs:
-                try:
-                    account_id = log.details.split("account ")[-1]
-                except:
-                    continue
-
-                account = await db.get(Account, account_id)
-                if account and log.after_state and "balance" in log.after_state:
-                    account.balance = log.after_state["balance"]
+            if from_node == settings.node_id and from_account:
+                account = await db.get(Account, from_account)
+                if account:
+                    account.balance -= amount
                     account.updated_at = datetime.utcnow()
                     db.add(account)
 
+            if to_node == settings.node_id and to_account:
+                account = await db.get(Account, to_account)
+                if account:
+                    account.balance += amount
+                    account.updated_at = datetime.utcnow()
+                    db.add(account)
+
+        # Finalize
         local_tx.status = TransactionStatus.COMMITTED
         local_tx.decided_at = datetime.utcnow()
         await transaction_manager.log_commit(db, transaction_id)
