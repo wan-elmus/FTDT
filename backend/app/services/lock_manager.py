@@ -13,7 +13,7 @@ class LockManager:
         self,
         db: AsyncSession,
         transaction_id: str,
-        resource_id: str,  # e.g., account.id
+        resource_id: str,
         timeout_ms: int = None
     ) -> bool:
         """Acquire write lock on resource. Returns True if successful."""
