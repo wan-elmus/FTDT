@@ -19,55 +19,61 @@ router = APIRouter()
 
 def _resolve_participants_for_transfer(request: TransferRequest) -> list[str]:
     """
-    Determine which participant nodes are involved in a transfer.
-    Only nodes that own affected accounts participate in 2PC.
+    Resolve participant URLs explicitly using from_node and to_node.
+    No guessing. No schema inference.
     """
 
-    from_account = request.from_account
-    to_account = request.to_account
+    from_node = request.from_node
+    to_node = request.to_node
 
-    from_node = None
-    to_node = None
+    nodes = settings.nodes
 
-    for node_id, info in settings.nodes.items():
-        if info.get("role") != "participant":
-            continue
-
-        schema = info.get("schema")
-
-        if from_account.startswith(schema):
-            from_node = node_id
-        if to_account.startswith(schema):
-            to_node = node_id
-
-    if not from_node or not to_node:
+    if from_node not in nodes:
         raise HTTPException(
             status_code=400,
-            detail="Unable to resolve participant nodes for transfer",
+            detail=f"Unknown from_node: {from_node}",
         )
 
-    participants = []
-    if from_node == to_node:
-        participants.append(from_node)
-    else:
-        participants.extend([from_node, to_node])
+    if to_node not in nodes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown to_node: {to_node}",
+        )
 
-    urls = []
-    for node_id in participants:
+    if nodes[from_node]["role"] != "participant":
+        raise HTTPException(
+            status_code=400,
+            detail=f"{from_node} is not a participant",
+        )
+
+    if nodes[to_node]["role"] != "participant":
+        raise HTTPException(
+            status_code=400,
+            detail=f"{to_node} is not a participant",
+        )
+
+    participant_ids = []
+    if from_node == to_node:
+        participant_ids.append(from_node)
+    else:
+        participant_ids.extend([from_node, to_node])
+
+    participant_urls = []
+    for node_id in participant_ids:
         url = settings.get_node_url(node_id)
         if not url:
             raise HTTPException(
                 status_code=500,
                 detail=f"URL not found for node {node_id}",
             )
-        urls.append(url)
+        participant_urls.append(url)
 
-    return urls
+    return participant_urls
 
 
 @router.post(
     "/transaction/transfer",
-    response_model=TransactionStatusResponse
+    response_model=TransactionStatusResponse,
 )
 async def create_transfer(
     request: TransferRequest,
@@ -80,9 +86,9 @@ async def create_transfer(
             detail="Only coordinator can initiate transactions",
         )
 
-    participant_urls = _resolve_participants_for_transfer(request)
-
     transaction_id = str(uuid.uuid4())
+
+    participant_urls = _resolve_participants_for_transfer(request)
 
     transaction = DistributedTransaction(
         id=transaction_id,
@@ -92,6 +98,7 @@ async def create_transfer(
         participant_urls=participant_urls,
         participant_votes={},
         participant_decisions={},
+        created_at=datetime.utcnow(),
         timeout_at=datetime.utcnow()
         + timedelta(milliseconds=settings.prepare_timeout),
     )
@@ -125,7 +132,7 @@ async def _run_2pc_task(transaction_id: str):
 
 @router.get(
     "/transactions/{transaction_id}",
-    response_model=TransactionStatusResponse
+    response_model=TransactionStatusResponse,
 )
 async def get_transaction_status(
     transaction_id: str,
@@ -137,9 +144,7 @@ async def get_transaction_status(
             detail="Only coordinator can query transaction status",
         )
 
-    transaction = await db.get(
-        DistributedTransaction, transaction_id
-    )
+    transaction = await db.get(DistributedTransaction, transaction_id)
     if not transaction:
         raise HTTPException(
             status_code=404,
