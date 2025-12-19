@@ -17,6 +17,54 @@ from app.services.failure_detector import failure_detector
 router = APIRouter()
 
 
+def _resolve_participants_for_transfer(request: TransferRequest) -> list[str]:
+    """
+    Determine which participant nodes are involved in a transfer.
+    Only nodes that own affected accounts participate in 2PC.
+    """
+
+    from_account = request.from_account
+    to_account = request.to_account
+
+    from_node = None
+    to_node = None
+
+    for node_id, info in settings.nodes.items():
+        if info.get("role") != "participant":
+            continue
+
+        schema = info.get("schema")
+
+        if from_account.startswith(schema):
+            from_node = node_id
+        if to_account.startswith(schema):
+            to_node = node_id
+
+    if not from_node or not to_node:
+        raise HTTPException(
+            status_code=400,
+            detail="Unable to resolve participant nodes for transfer",
+        )
+
+    participants = []
+    if from_node == to_node:
+        participants.append(from_node)
+    else:
+        participants.extend([from_node, to_node])
+
+    urls = []
+    for node_id in participants:
+        url = settings.get_node_url(node_id)
+        if not url:
+            raise HTTPException(
+                status_code=500,
+                detail=f"URL not found for node {node_id}",
+            )
+        urls.append(url)
+
+    return urls
+
+
 @router.post(
     "/transaction/transfer",
     response_model=TransactionStatusResponse
@@ -32,6 +80,8 @@ async def create_transfer(
             detail="Only coordinator can initiate transactions",
         )
 
+    participant_urls = _resolve_participants_for_transfer(request)
+
     transaction_id = str(uuid.uuid4())
 
     transaction = DistributedTransaction(
@@ -39,7 +89,7 @@ async def create_transfer(
         status=TransactionStatus.INIT,
         operation_type="transfer",
         operation_data=request.dict(),
-        participant_urls=settings.get_participant_urls(),
+        participant_urls=participant_urls,
         participant_votes={},
         participant_decisions={},
         timeout_at=datetime.utcnow()
@@ -50,7 +100,6 @@ async def create_transfer(
     await db.commit()
     await db.refresh(transaction)
 
-    # Run 2PC asynchronously (new session inside task)
     background_tasks.add_task(
         _run_2pc_task,
         transaction_id,
