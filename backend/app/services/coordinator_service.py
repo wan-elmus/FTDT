@@ -50,7 +50,7 @@ class CoordinatorService:
         votes = {}
         all_yes = True
 
-        # ---------------- Phase 1: PREPARE ----------------
+        #  Phase 1: PREPARE
         async with httpx.AsyncClient(
             timeout=settings.prepare_timeout / 1000
         ) as client:
@@ -92,7 +92,7 @@ class CoordinatorService:
         )
         await db.commit()
 
-        # ---------------- Phase 2: COMMIT / ABORT ----------------
+        # Phase 2: COMMIT / ABORT
         decision = "commit" if all_yes else "abort"
 
         async with httpx.AsyncClient(

@@ -25,6 +25,7 @@ class LockManager:
             query = select(Lock).where(
                 and_(
                     Lock.resource_id == resource_id,
+                    Lock.node_id == settings.node_id,
                     Lock.released_at.is_(None)
                 )
             )

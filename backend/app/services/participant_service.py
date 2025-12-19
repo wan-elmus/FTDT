@@ -66,7 +66,10 @@ class ParticipantService:
         # Load account with FOR UPDATE
         stmt = (
             select(Account)
-            .where(Account.id == account_id)
+            .where( 
+                Account.id == account_id,
+                Account.node_id == settings.node_id,
+            )
             .with_for_update()
         )
         result = await db.execute(stmt)
@@ -197,7 +200,10 @@ class ParticipantService:
     ):
         stmt = (
             select(Account)
-            .where(Account.id == account_id)
+            .where(
+                Account.id == account_id,
+                Account.node_id == settings.node_id,
+            )   
             .with_for_update()
         )
         result = await db.execute(stmt)
