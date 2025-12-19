@@ -41,7 +41,6 @@ class Settings(BaseSettings):
     def schema_name(self) -> str:
         return 'public' if self.node_role == 'coordinator' else self.node_id
 
-    # Delegate to node_registry
     def get_participant_urls(self) -> List[str]:
         return node_registry.get_participant_urls()
 

@@ -45,5 +45,4 @@ class NodeRegistry:
     def is_coordinator(self, node_id: str) -> bool:
         return self.nodes.get(node_id, {}).get("role") == "coordinator"
 
-# Singleton instance
 node_registry = NodeRegistry()
